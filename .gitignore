@@ -1,0 +1,8 @@
+_bin
+.vscode
+SAL-BOF/vulndrivers.h
+Creds-BOF/nanodump/dist
+
+# macOS
+.DS_Store
+**/.DS_Store
