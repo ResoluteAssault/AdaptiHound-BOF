@@ -1,0 +1,16 @@
+#pragma once
+#include <sspi.h>
+#include <dsgetdc.h>
+#include <lm.h>
+#include <lmshare.h>
+#include <lmwksta.h>
+#include <lmserver.h>
+#include <ntsecapi.h>
+#include <sddl.h>
+#include <winreg.h>
+#include <winsvc.h>
+#include <winhttp.h>
+#include <wtsapi32.h>
+#include <wbemcli.h>
+#include <oleauto.h>
+#include <ws2tcpip.h>
