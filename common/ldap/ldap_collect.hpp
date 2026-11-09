@@ -41,26 +41,37 @@ static void ah_values(ah_directory &data, ah_attr *attribute, struct berval **va
 }
 
 static int ah_attribute(ah_directory &data, ah_object *object, LDAP *ld, LDAPMessage *entry, wchar_t *dn, wchar_t *name,bool merge_missing=false,bool *integrity_failure=nullptr) {
-    if(merge_missing) {
-        char *attribute=data.arena.utf8(name);
-        if(!attribute)return 0;
-        if(object->attr(attribute))return 1;
-    }
     unsigned int next = 0, start = 0; int terminal = 0, ok = 1;
     wchar_t *range = ah_range(name, &next, &terminal, &start);
     if (range && start != 0) { if(integrity_failure)*integrity_failure=true;return 0; }
+    struct range_name_owner final {
+        wchar_t *value = nullptr;
+        ~range_name_owner() { ah_free(value); }
+    } canonical;
+    if (range) {
+        const size_t length = static_cast<size_t>(range - name);
+        if (length > SIZE_MAX / sizeof(wchar_t) - 1) { data.arena.failed = true; return 0; }
+        // Keep the base name independent of descriptors returned by WinLDAP.
+        canonical.value = ah_alloc<wchar_t>((length + 1) * sizeof(wchar_t));
+        if (!canonical.value) { data.arena.failed = true; return 0; }
+        for (size_t i = 0; i < length; ++i) canonical.value[i] = name[i];
+        canonical.value[length] = 0;
+    }
+    wchar_t *base_name = range ? canonical.value : name;
+    char *attribute_name = data.arena.utf8(base_name);
+    if (!attribute_name) return 0;
+    ah_attr *attribute = object->attr(attribute_name);
+    if (merge_missing && attribute && attribute->values) return 1;
     struct berval **values = WLDAP32$ldap_get_values_lenW(ld, entry, name);
-    if (range) *range = 0;
-    char *attribute_name = data.arena.utf8(name);
-    ah_attr *attribute = attribute_name ? data.attribute(object, attribute_name) : nullptr;
+    if (!attribute) attribute = data.attribute(object, attribute_name);
     ah_values(data, attribute, values);
     if (values) WLDAP32$ldap_value_free_len(values);
     ah_ldap_retry_state ranged_retries;
     while (range && !terminal && !data.arena.failed) {
-        size_t n = ah_wlen(name) + 64;
+        size_t n = ah_wlen(base_name) + 64;
         wchar_t *request = ah_alloc<wchar_t>(n * sizeof(wchar_t));
         if (!request) { data.arena.failed = true; break; }
-        MSVCRT$_snwprintf(request, n, L"%ls;range=%u-*", name, next);
+        MSVCRT$_snwprintf(request, n, L"%ls;range=%u-*", base_name, next);
         wchar_t *attrs[] = {request, nullptr}; LDAPMessage *result = nullptr;
         struct l_timeval timeout = {ah_ldap_query_timeout_seconds, 0};
         ULONG status = ah_ldap_search_retry(ld, dn, LDAP_SCOPE_BASE, const_cast<wchar_t *>(L"(objectClass=*)"), attrs, 0, nullptr, nullptr, &timeout, 0, &result,false,&ranged_retries);
@@ -68,16 +79,26 @@ static int ah_attribute(ah_directory &data, ah_object *object, LDAP *ld, LDAPMes
         BerElement *ber = nullptr;
         wchar_t *actual = item ? WLDAP32$ldap_first_attributeW(ld, item, &ber) : nullptr;
         unsigned int following = 0, returned_start = 0; int last = 0;
-        wchar_t *actual_range = actual ? ah_range(actual, &following, &last, &returned_start) : nullptr;
-        bool same_attribute = actual_range && static_cast<size_t>(actual_range - actual) == ah_wlen(name);
-        for (size_t i = 0; same_attribute && i < ah_wlen(name); ++i) {
-            wchar_t x = actual[i], y = name[i];
-            if (x >= 'A' && x <= 'Z') x += 32;
-            if (y >= 'A' && y <= 'Z') y += 32;
-            if (x != y) same_attribute = false;
+        bool same_attribute = false;
+        while (actual) {
+            wchar_t *actual_range = ah_range(actual, &following, &last, &returned_start);
+            same_attribute = actual_range && static_cast<size_t>(actual_range - actual) == ah_wlen(base_name);
+            for (size_t i = 0; same_attribute && i < ah_wlen(base_name); ++i) {
+                wchar_t x = actual[i], y = base_name[i];
+                if (x >= 'A' && x <= 'Z') x += 32;
+                if (y >= 'A' && y <= 'Z') y += 32;
+                if (x != y) same_attribute = false;
+            }
+            if (same_attribute) break;
+            WLDAP32$ldap_memfreeW(actual);
+            actual = WLDAP32$ldap_next_attributeW(ld, item, ber);
         }
-        if(status!=LDAP_SUCCESS)ok=0;
+        if(status!=LDAP_SUCCESS) {
+            BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: %ls range starting %u failed (LDAP %u)", base_name, next, status);
+            ok=0;
+        }
         else if (!same_attribute || returned_start != next || (!last && following <= next)) {
+            BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: %ls range starting %u returned unexpected attribute %ls", base_name, next, actual ? actual : L"<missing>");
             ok=0;
             if(integrity_failure)*integrity_failure=true;
         }
