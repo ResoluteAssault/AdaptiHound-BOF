@@ -38,21 +38,31 @@ static char *ah_read_gpo_file(ah_graph &g, ah_object *gpo, const wchar_t *dc, co
     ah_free(wide);
     if (file == INVALID_HANDLE_VALUE) return nullptr;
     LARGE_INTEGER size = {};
-    if (!KERNEL32$GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 2 * 1024 * 1024) { KERNEL32$CloseHandle(file); return nullptr; }
-    DWORD length = static_cast<DWORD>(size.QuadPart), read = 0;
-    char *data = ah_alloc(length + 3);
+    if (!KERNEL32$GetFileSizeEx(file, &size) || size.QuadPart < 0 || static_cast<uint64_t>(size.QuadPart) > SIZE_MAX) { KERNEL32$CloseHandle(file); return nullptr; }
+    size_t length = static_cast<size_t>(size.QuadPart), allocation = 0;
+    if (!ah_size_add(length, 3, allocation)) { KERNEL32$CloseHandle(file); return nullptr; }
+    char *data = ah_alloc(allocation);
     if (!data) { KERNEL32$CloseHandle(file); return nullptr; }
-    bool ok = KERNEL32$ReadFile(file, data, length, &read, nullptr) && read == length;
+    size_t offset = 0;
+    bool ok = true;
+    while (offset < length) {
+        DWORD read = 0, wanted = static_cast<DWORD>(length - offset > 1048576 ? 1048576 : length - offset);
+        if (!KERNEL32$ReadFile(file, data + offset, wanted, &read, nullptr) || !read || read > wanted) { ok = false; break; }
+        offset += read;
+    }
     KERNEL32$CloseHandle(file);
-    if (!ok) { ah_free(data); return nullptr; }
+    if (!ok || offset != length) { ah_free(data); return nullptr; }
     data[length] = data[length + 1] = data[length + 2] = 0;
     const unsigned char *bytes = reinterpret_cast<unsigned char *>(data);
     bool utf16le = length >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe;
     bool utf16be = length >= 2 && bytes[0] == 0xfe && bytes[1] == 0xff;
     if (utf16le || utf16be) {
         if (length & 1) { ah_free(data); return nullptr; }
-        size_t units = (length - 2) / 2;
-        wchar_t *unicode = ah_alloc<wchar_t>((units + 1) * sizeof(wchar_t));
+        size_t units = (length - 2) / 2, unicode_units = 0, unicode_bytes = 0;
+        // WideCharToMultiByte uses signed 32-bit character counts, including
+        // the terminator when -1 is passed for its input length.
+        if (units >= static_cast<size_t>(0x7fffffffU) || !ah_size_add(units, 1, unicode_units) || !ah_size_multiply(unicode_units, sizeof(wchar_t), unicode_bytes)) { ah_free(data); return nullptr; }
+        wchar_t *unicode = ah_alloc<wchar_t>(unicode_bytes);
         if (!unicode) { ah_free(data); return nullptr; }
         for (size_t i = 0; i < units; ++i) {
             unsigned char a = bytes[2 + 2 * i], b = bytes[3 + 2 * i];
@@ -66,7 +76,7 @@ static char *ah_read_gpo_file(ah_graph &g, ah_object *gpo, const wchar_t *dc, co
     }
 
     if (length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf)
-        for (DWORD i = 0; i <= length - 3; ++i) data[i] = data[i + 3];
+        for (size_t i = 0; i <= length - 3; ++i) data[i] = data[i + 3];
     return data;
 }
 
