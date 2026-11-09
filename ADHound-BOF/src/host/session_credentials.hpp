@@ -35,12 +35,12 @@ public:
                     revert();
                     if (!restore(nullptr, previous)) {
                         InterlockedIncrement(&ah_token_restore_failures);
-                        if (ah_host_diagnostics) { BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: restoring original thread token failed"); }
+                        BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: restoring original thread token failed");
                     }
                 }
             } else if (!revert()) {
                 InterlockedIncrement(&ah_token_restore_failures);
-                if (ah_host_diagnostics) { BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: reverting session credentials failed"); }
+                BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: reverting session credentials failed");
             }
         }
         if (previous) KERNEL32$CloseHandle(previous);

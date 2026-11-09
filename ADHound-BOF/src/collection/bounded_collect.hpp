@@ -222,10 +222,10 @@ static bool ah_collect_bounded(const ah_options &options, const ah_profile *prof
         const size_t allowed_threads = workspace / (8 * 1024 * 1024);
         if (static_cast<size_t>(ah_threads) > allowed_threads) ah_threads = allowed_threads ? static_cast<int>(allowed_threads) : 1;
         if (maximum)
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: bounded AD collection, %llu-byte BOF heap ceiling, %llu-byte ZIP part target; Downloads are delivered after the task returns",
+            ah_log_telemetry("AdaptiHound: bounded AD collection, %llu-byte BOF heap ceiling, %llu-byte ZIP part target; Downloads are delivered after the task returns",
                 static_cast<unsigned long long>(maximum), static_cast<unsigned long long>(target));
         else
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: economical AD collection, no user hard ceiling, %llu-byte ZIP part target; Downloads are delivered after the task returns",
+            ah_log_telemetry("AdaptiHound: economical AD collection, no user hard ceiling, %llu-byte ZIP part target; Downloads are delivered after the task returns",
                 static_cast<unsigned long long>(target));
         for (unsigned int i = 0; complete && i < profile->query_count; ++i) {
             const ah_query &query = profile->queries[i];
@@ -242,9 +242,14 @@ static bool ah_collect_bounded(const ah_options &options, const ah_profile *prof
         }
         ah_threads = requested_threads;
         success = parts.finish(complete && output.valid());
-        BeaconPrintf(success ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: %llu ZIP/JSON parts, %llu records; collection %s%s%s",
-            static_cast<unsigned long long>(parts.parts()), static_cast<unsigned long long>(parts.records()),
-            success ? "complete" : "incomplete", parts.failure_reason() ? ": " : "", parts.failure_reason() ? parts.failure_reason() : "");
+        if (ah_telemetry_enabled)
+            BeaconPrintf(success ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: %llu ZIP/JSON parts, %llu records; collection %s%s%s",
+                static_cast<unsigned long long>(parts.parts()), static_cast<unsigned long long>(parts.records()),
+                success ? "complete" : "incomplete", parts.failure_reason() ? ": " : "", parts.failure_reason() ? parts.failure_reason() : "");
+        else
+            BeaconPrintf(success ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: collection %s; %llu parts prepared for Downloads%s%s",
+                success ? "complete" : "incomplete", static_cast<unsigned long long>(parts.parts()),
+                parts.failure_reason() ? ": " : "", parts.failure_reason() ? parts.failure_reason() : "");
     } else BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: bounded collection could not load domain support metadata; no archive sent");
     ah_free(domain_base); ah_free(configuration);
     return success;

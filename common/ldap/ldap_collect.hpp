@@ -219,7 +219,8 @@ static int ah_dataset_page(ah_directory &data, LDAP *ld, const ah_query *q, wcha
         if(!cookie.length||!entries){status=LDAP_NO_RESULTS_RETURNED;break;}
     }
     if (status != LDAP_NO_RESULTS_RETURNED && !(q->optional && status == LDAP_NO_SUCH_OBJECT)) ok = 0;
-    if (!quiet || !ok) BeaconPrintf(ok ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: %ls: %u objects (LDAP %u)", q->type, count, status);
+    if (!ok) BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: %ls: %u objects (LDAP %u)", q->type, count, status);
+    else if (!quiet) ah_log_telemetry("AdaptiHound: %ls: %u objects (LDAP %u)", q->type, count, status);
     ah_free(dn);
     return ok;
 }

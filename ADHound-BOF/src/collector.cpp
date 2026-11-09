@@ -49,6 +49,7 @@ static char *ah_discover_domain(const char *domain) {
 #include "collection/gpo_lookup.hpp"
 
 static void ah_apply_runtime_options(const ah_options &o) {
+    ah_host_diagnostics = ah_telemetry_enabled;
     ah_skip_registry_loggedon = (o.runtime_flags & 1) != 0;
     ah_partition_queries = (o.runtime_flags & 8) != 0;
     ah_local_admin_session = (o.runtime_flags & 16) != 0;
@@ -439,7 +440,7 @@ static void ah_run_loop(const ah_options &options, const ah_profile *profile, Co
     auto *previous_sink=ah_archive_sink;auto *previous_zip=ah_loop_zip;
     const bool bounded = ah_bounded_requested(options, profile);
     if (!bounded) { ah_loop_zip=&outer;ah_archive_sink=ah_loop_capture_archive; }
-    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: explicit loop enabled for %llu milliseconds, interval %llu milliseconds; methods %u", static_cast<unsigned long long>(duration_ms), static_cast<unsigned long long>(interval_ms), current.collection);
+    ah_log_telemetry("AdaptiHound: explicit loop enabled for %llu milliseconds, interval %llu milliseconds; methods %u", static_cast<unsigned long long>(duration_ms), static_cast<unsigned long long>(interval_ms), current.collection);
     for (;;) {
         ULONGLONG now = KERNEL32$GetTickCount64();
         if (now >= deadline) break;
@@ -471,9 +472,12 @@ static void ah_run_loop(const ah_options &options, const ah_profile *profile, Co
 }
 
 static void ah_collect(char *args, int length, const ah_profile *profile) {
+    ah_verbosity = 2;
+    ah_telemetry_enabled = false;
     ah_options options = {};
     if (!ah_unpack(args, length, options, {AH_DEFAULT, AH_DCONLY, AH_ALL})) { BeaconPrintf(CALLBACK_ERROR, "Invalid AdaptiHound argument buffer or options"); return; }
     ah_verbosity = options.verbosity;
+    ah_telemetry_enabled = ah_telemetry(options);
     if (options.legacy_layout) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: legacy AxScript arguments; reload the extension to enable current options");
     const bool bounded = ah_bounded_requested(options, profile);
     if (ah_memory_auto(options) && !bounded) {
@@ -481,20 +485,21 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
         return;
     }
     ah_memory_scope memory(ah_memory_limit(options.mib), ah_memory_auto(options) ? ah_memory_workspace(options) : 0);
-    if (memory.budget.adaptive()) {
+    if (memory.budget.adaptive() && ah_telemetry_enabled) {
         if (memory.budget.limit())
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; hard ceiling %llu bytes; agent and native API memory are separate",
+            ah_log_telemetry("AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; hard ceiling %llu bytes; agent and native API memory are separate",
                 static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.limit()));
         else
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; no user hard ceiling; agent and native API memory are separate",
+            ah_log_telemetry("AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; no user hard ceiling; agent and native API memory are separate",
                 static_cast<unsigned long long>(memory.budget.initial_limit()));
     }
     if (profile->security_descriptors && options.mib > 0 && !bounded)
         BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: this option combination uses the standard collection pipeline; multipart collection currently applies to a single domain without Stealth, ComputerFile or explicit computer targets");
     ah_cache_scope cache(options.cache_name,ah_memory_limit(options.mib),
         profile->security_descriptors&&options.wire_version>=4&&!bounded,(options.runtime_flags&4096)!=0);
-    ah_observability observations(options.status_interval,(options.option_presence&1)!=0,options.output_prefix,*options.domain?options.domain:options.server);
+    ah_observability observations(options.status_interval,(options.option_presence&1)!=0,options.output_prefix,*options.domain?options.domain:options.server,ah_telemetry_enabled);
     if (!observations.valid()) return;
+    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: collecting Active Directory");
     ah_observe_begin_pass();
     bool complete=ah_collect_pass(options,profile);
     ah_observe_end_pass();
@@ -502,16 +507,18 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
         ah_run_loop(options, profile, [](const ah_options &current, const ah_profile *backend) { return ah_collect_pass(current, backend); });
     cache.finish();
     observations.finish();
-    if (memory.budget.adaptive()) {
+    if (memory.budget.adaptive() && ah_telemetry_enabled) {
         if (memory.budget.limit())
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; hard ceiling %llu bytes; increases %llu",
+            ah_log_telemetry("AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; hard ceiling %llu bytes; increases %llu",
                 static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.working_limit()),
                 static_cast<unsigned long long>(memory.budget.limit()), static_cast<unsigned long long>(memory.budget.growth_count()));
         else
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; no user hard ceiling; increases %llu",
+            ah_log_telemetry("AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; no user hard ceiling; increases %llu",
                 static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.working_limit()),
                 static_cast<unsigned long long>(memory.budget.growth_count()));
     }
-    BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: BOF-owned heap peak %llu bytes; allocation failures %llu",
+    ah_log_telemetry("AdaptiHound: BOF-owned heap peak %llu bytes; allocation failures %llu",
         static_cast<unsigned long long>(memory.budget.peak()),static_cast<unsigned long long>(memory.budget.allocation_failures()));
+    if (memory.budget.allocation_failures() && !ah_telemetry_enabled)
+        BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: memory allocation failures occurred; check collection completeness");
 }

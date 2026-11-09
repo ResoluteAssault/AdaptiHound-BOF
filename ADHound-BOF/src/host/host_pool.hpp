@@ -168,7 +168,7 @@ public:
         }
         const bool diagnostics = ah_host_diagnostics;
         token_failures_before = ah_token_restore_failures;
-        ah_host_diagnostics = false;
+        ah_host_diagnostics = diagnostics && ah_telemetry_enabled;
         ah_object *next = source.directory.objects;
         while (next && !InterlockedCompareExchange(&failed, 0, 0)) {
             task_count = 0;

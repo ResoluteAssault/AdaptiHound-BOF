@@ -31,6 +31,8 @@ struct ah_options {
 static size_t ah_memory_limit(int mib) { return static_cast<size_t>(mib) * 1024 * 1024; }
 static constexpr int ah_memory_auto_flag = 16384;
 static bool ah_memory_auto(const ah_options &options) { return (options.runtime_flags & ah_memory_auto_flag) != 0; }
+static constexpr int ah_telemetry_flag = 1024;
+static bool ah_telemetry(const ah_options &options) { return (options.option_presence & ah_telemetry_flag) != 0; }
 static inline size_t ah_memory_workspace(const ah_options &options) {
     const size_t maximum = ah_memory_limit(options.mib);
     constexpr size_t initial = 32 * 1024 * 1024;
@@ -71,7 +73,7 @@ static bool ah_unpack(char *args, int length, ah_options &o, const ah_wire_colle
         if (BeaconDataLength(&parser)) {
             if (BeaconDataLength(&parser) < 13) return false;
             int version = BeaconDataInt(&parser);
-            if (version < 1 || version > 6) return false;
+            if (version < 1 || version > 7) return false;
             o.wire_version=version;
             int flags = BeaconDataInt(&parser);
             if (flags & ~(version == 1 ? 1 : 63)) return false;
@@ -98,7 +100,7 @@ static bool ah_unpack(char *args, int length, ah_options &o, const ah_wire_colle
                     for (char **value : tail) { *value = ah_argument(&parser); if (!*value) return false; }
                     if (BeaconDataLength(&parser) != 8) return false;
                     o.option_presence = BeaconDataInt(&parser); o.verbosity = BeaconDataInt(&parser);
-                    if (o.option_presence & ~1023) return false;
+                    if (o.option_presence & ~(version >= 7 ? 2047 : 1023)) return false;
                 }
             }
             if (BeaconDataLength(&parser)) return false;
@@ -119,6 +121,7 @@ static bool ah_unpack(char *args, int length, ah_options &o, const ah_wire_colle
         (o.search_forest == 0 || o.search_forest == 1) && (o.recurse_domains == 0 || o.recurse_domains == 1) &&
         o.port >= 0 && o.port <= 65535 && o.pages >= 1 && o.pages <= 1000 && o.mib >= 0 && static_cast<uint64_t>(o.mib) <= SIZE_MAX / (1024 * 1024) &&
         (!ah_memory_auto(o) || o.wire_version >= 6) &&
+        (!ah_telemetry(o) || o.wire_version >= 7) &&
         o.collection >= 0 && !(o.collection & ~modes.all) && (!o.loop || o.loop_interval_ticks > -10000LL) && o.port_scan_timeout >= 1 &&
         o.ssl_port >= 0 && o.ssl_port <= 65535 && o.throttle >= 0 && o.jitter >= 0 && o.jitter <= 100 && o.threads >= 1 && o.status_interval >= 1 &&
         (!*o.ldap_password || *o.ldap_username) && (!*o.user || !*o.ldap_username) && (o.wire_version>=4 || !*o.cache_name) &&

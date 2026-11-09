@@ -318,7 +318,10 @@ public:
         if(ah_archive_sink)return ah_archive_sink(filename,bytes);
         if (bytes.length > INT32_MAX) { BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: ZIP exceeds AxDownloadMemory's signed 2 GiB transfer limit"); return false; }
         AxDownloadMemory(filename, bytes.data, static_cast<int>(bytes.length));
-        BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: ZIP ready in Downloads: %s (%llu bytes, %llu entries)", filename, static_cast<unsigned long long>(bytes.length), static_cast<unsigned long long>(count));
+        if (ah_telemetry_enabled)
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: archive prepared for Downloads: %s (%llu bytes, %llu entries)", filename, static_cast<unsigned long long>(bytes.length), static_cast<unsigned long long>(count));
+        else
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: archive prepared for Downloads");
         return true;
     }
 };

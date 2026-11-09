@@ -158,9 +158,10 @@ function adaptihound_arguments(command, backend) {
     command.addArgFlagString("--loop-interval", "loop_interval", "AD: TimeSpan delay between passes; 0 selects 30 seconds", "00:00:00");
     command.addArgFlagString("--loop-duration-seconds", "loop_duration_seconds", false, "AD: legacy integer-seconds duration alias");
     command.addArgFlagString("--loop-interval-seconds", "loop_interval_seconds", false, "AD: legacy integer-seconds interval alias");
-    command.addArgFlagInt("--status-interval", "status_interval", "AD: periodic object count, rate and process memory status in milliseconds", 30000);
+    command.addArgBool("--telemetry", "Print detailed collection diagnostics and periodic progress to the console");
+    command.addArgFlagInt("--status-interval", "status_interval", "Periodic console telemetry interval in milliseconds; requires --telemetry", 30000);
     command.addArgFlagInt("--verbosity", "verbosity", "Minimum log level: 0 trace, 1 debug, 2 information, 3 warning, 4 error, 5 critical, 6 none", 2);
-    command.addArgBool("--metrics", "AD: flush collection metrics every five seconds and send metrics.log to Downloads");
+    command.addArgBool("--metrics", "AD: export collection metrics to metrics.log in Downloads independently of console telemetry");
     adaptihound_argument_schema[backend] = schema;
 }
 
@@ -276,8 +277,8 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
     let option_presence = (parsed_json["--metrics"] ? 1 : 0) | (has_duration_seconds ? 2 : 0) | (has_interval_seconds ? 4 : 0) |
         (local_user_present ? 8 : 0) | (local_password_present ? 16 : 0) | (parsed_json["computer_file"] ? 32 : 0) | (computer_file_agent ? 64 : 0) |
         (parsed_json["ldap_filter"] !== undefined && parsed_json["ldap_filter"] !== null ? 128 : 0) | (parsed_json["output_prefix"] !== undefined && parsed_json["output_prefix"] !== null ? 256 : 0) |
-        (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null ? 512 : 0);
-    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, memory_auto ? 6 : 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
+        (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null ? 512 : 0) | (parsed_json["--telemetry"] ? 1024 : 0);
+    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, parsed_json["--telemetry"] ? 7 : memory_auto ? 6 : 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
     let format = "cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,int,cstr,int,int,int,int,cstr,int,int,int,int,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,cstr,cstr,cstr,cstr,int,int";
     let bof_params = ax.bof_pack(format, values);
     let bof_path = ax.script_dir() + "_bin/AdaptiHound/" + backend + "." + ax.arch(id) + ".o";

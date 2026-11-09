@@ -147,7 +147,7 @@ class ah_batch_output final {
         context state{*this, graph};
         ah_object_pool pool(graph, maximum);
         const bool diagnostics = ah_host_diagnostics;
-        ah_host_diagnostics = false;
+        ah_host_diagnostics = diagnostics && ah_telemetry_enabled;
         // One context at a time releases derived attributes, reference lookups
         // and the row buffer before the next object is serialized.
         const bool success = pool.run(graph.directory.objects, 1, selected, ah_serialize_output_object, capture, &state);

@@ -407,10 +407,10 @@ public:
         if(!enabled)return;
         path=name&&*name?ah_heap_copy(name):default_name();
         if(!path||!data.valid()){enabled=false;BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot initialize persistent cache");return;}
-        loaded=load();ah_current_cache=&data;BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: cache %s: %s%s\n",path,loaded?"loaded":"fresh",memory_only?" (memory-only save policy)":"");
+        loaded=load();ah_current_cache=&data;ah_log_telemetry("AdaptiHound: cache %s: %s%s\n",path,loaded?"loaded":"fresh",memory_only?" (memory-only save policy)":"");
     }
     ~ah_cache_scope(){ah_current_cache=previous;ah_free(path);}
-    bool finish(){if(finished)return finish_result;finished=true;if(!enabled){finish_result=!requested;return finish_result;}if(data.exhausted)BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: cache memory limit reached; additional lookups were not retained\n");if(memory_only)return true;bool ok=save();if(!ok)BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot atomically save cache %s\n",path);finish_result=ok;return ok;}
+    bool finish(){if(finished)return finish_result;finished=true;if(!enabled){finish_result=!requested;return finish_result;}if(data.exhausted)ah_log_telemetry("AdaptiHound: cache memory limit reached; additional lookups were not retained\n");if(memory_only)return true;bool ok=save();if(!ok)BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot atomically save cache %s\n",path);finish_result=ok;return ok;}
     const char *filename()const{return path;}
     ah_cache_scope(const ah_cache_scope&)=delete;ah_cache_scope &operator=(const ah_cache_scope&)=delete;
 };

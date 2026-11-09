@@ -57,23 +57,29 @@ cleanup:
 }
 
 static void ah_collect(char *args, int length, const ah_profile *profile) {
+    ah_verbosity = 2;
+    ah_telemetry_enabled = false;
     ah_options options = {};
 
     const ah_wire_collections wire_modes = {23884779, 17040101, 66057215};
     if (!ah_unpack(args, length, options, wire_modes)) { BeaconPrintf(CALLBACK_ERROR, "Invalid AdaptiHound argument buffer or options"); return; }
     ah_verbosity = options.verbosity;
+    ah_telemetry_enabled = ah_telemetry(options);
     if (options.legacy_layout) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: legacy AxScript arguments; reload the extension to enable current options");
     if (options.collect_all || *options.computers || *options.domain || options.search_forest || options.recurse_domains || options.loop || options.skip_port_scan || options.skip_password_age_check || options.stealth || options.exclude_dcs || (options.runtime_flags&(14591|ah_memory_auto_flag)) || (options.option_presence&767) || *options.cache_name || *options.ldap_username || *options.ldap_filter || *options.override_username || *options.real_dns_name || options.ssl_port || options.throttle || options.jitter) {
         BeaconPrintf(CALLBACK_ERROR, "Additional LDAP properties, target filters, loops and availability options require the AD backend"); return;
     }
     ah_memory_scope memory(ah_memory_limit(options.mib));
     ah_observability observations(options.status_interval, (options.option_presence & 1) != 0,
-        options.output_prefix, options.server);
+        options.output_prefix, options.server, ah_telemetry_enabled);
     if (!observations.valid()) return;
+    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: collecting FreeIPA");
     ah_observe_begin_pass();
     ah_collect_single(options, profile);
     ah_observe_end_pass();
     observations.finish();
-    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: BOF-owned heap peak %llu bytes; allocation failures %llu",
+    ah_log_telemetry("AdaptiHound: BOF-owned heap peak %llu bytes; allocation failures %llu",
         static_cast<unsigned long long>(memory.budget.peak()), static_cast<unsigned long long>(memory.budget.allocation_failures()));
+    if (memory.budget.allocation_failures() && !ah_telemetry_enabled)
+        BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: memory allocation failures occurred; check collection completeness");
 }

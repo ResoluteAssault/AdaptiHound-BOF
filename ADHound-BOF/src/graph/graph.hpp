@@ -141,7 +141,8 @@ struct ah_graph final {
             }
             p = end;
         }
-        BeaconPrintf(missing ? CALLBACK_ERROR : CALLBACK_OUTPUT, "AdaptiHound: target selection: %u computers matched, %u names/SIDs unresolved", found, missing);
+        if (missing) BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: target selection: %u computers matched, %u names/SIDs unresolved", found, missing);
+        else ah_log_telemetry("AdaptiHound: target selection: %u computers matched", found);
         return found != 0 && !arena.failed;
     }
     bool host_selected(const char *host) const {
@@ -670,7 +671,7 @@ static bool ah_export_ad_objects(ah_graph &graph,size_t limit,const wchar_t *dc)
     if((ah_collection&AH_GPO_LOCAL_GROUP)&&!ah_prepare_gpo_output(graph,dc))return false;
     ah_parallel_output_context context{graph,*ah_active_combined_output};
     ah_object_pool pool(graph,limit);
-    const bool diagnostics=ah_host_diagnostics;ah_host_diagnostics=false;
+    const bool diagnostics=ah_host_diagnostics;ah_host_diagnostics=diagnostics && ah_telemetry_enabled;
     const bool success=pool.run(graph.directory.objects,ah_threads,ah_parallel_output_selected,ah_serialize_output_object,ah_capture_output_object,&context);
     ah_host_diagnostics=diagnostics;
     if(!success){BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: object processing failed (worker status %u)",pool.error());return false;}
