@@ -122,6 +122,7 @@ function adaptihound_arguments(command, backend) {
     command.addArgBool("--partition-ldap-queries", "AD: partition main LDAP queries by the first GUID byte");
     command.addArgFlagInt("--page-size", "page_size", "Entries per LDAP page (1..1000)", 500);
     command.addArgFlagInt("--max-mib", "max_mib", "Total BOF-owned heap budget in MiB; 0 grows with available memory", 0);
+    command.addArgBool("--memory-auto", "AD: economical streaming with memory allocated as needed; optional --max-mib hard ceiling covers BOF-owned heap only");
     command.addArgFlagString("--collection", "collection", "Collection mode: dconly, default or full", "default");
     command.addArgBool("--collect-all-properties", "AD: collect and export additional readable LDAP attributes");
     command.addArgFlagString("--computers", "computers", "AD: restrict host collection to comma-separated DNS names, account names or SIDs; LDAP graph remains available", "");
@@ -185,6 +186,13 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
     if (!user && password) throw new Error("--password requires --bind-dn");
     let port = parsed_json["port"], pages = parsed_json["page_size"], mib = parsed_json["max_mib"];
     if (port < 0 || port > 65535 || pages < 1 || pages > 1000 || mib < 0 || mib > 2147483647) throw new Error("Invalid port, page size or memory limit");
+    let memory_auto = parsed_json["--memory-auto"] ? 1 : 0;
+    if (memory_auto) {
+        if (backend !== "ad") throw new Error("--memory-auto requires AD");
+        if (parsed_json["--stealth"] || parsed_json["--searchforest"] || parsed_json["--recursedomains"] ||
+            parsed_json["computer_file"] || parsed_json["computer_file_agent"] || parsed_json["computers"])
+            throw new Error("--memory-auto requires single-domain collection without Stealth, forest traversal or computer target filters");
+    }
     let output = parsed_json["output"] || "";
     if (output && /[\\/:\x00-\x1f]/.test(output)) throw new Error("--output must be a ZIP filename");
     if (output && !/\.zip$/i.test(output)) output += ".zip";
@@ -242,7 +250,7 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
     if (backend === "freeipa" && (loop || skip_port || skip_age || stealth || exclude_dcs)) throw new Error("Loop and availability options require AD");
     let flags = collect_all | (skip_port << 1) | (skip_age << 2) | (loop << 3) | (stealth << 4) | (exclude_dcs << 5);
     let runtime_flags = 0;
-    let switches = ["--skip-registry-loggedon", "--disable-signing", "--disable-cert-verification", "--partition-ldap-queries", "--local-admin-session", "--extended-sessions", "--conservative-probes", null, "--pretty-print", "--no-zip", "--random-filenames", "--track-computer-calls", "--memcache", "--rebuild-cache"];
+    let switches = ["--skip-registry-loggedon", "--disable-signing", "--disable-cert-verification", "--partition-ldap-queries", "--local-admin-session", "--extended-sessions", "--conservative-probes", null, "--pretty-print", "--no-zip", "--random-filenames", "--track-computer-calls", "--memcache", "--rebuild-cache", "--memory-auto"];
     for (let i = 0; i < switches.length; ++i) if (switches[i] && parsed_json[switches[i]]) runtime_flags |= 1 << i;
     if (parsed_json["computer_file"] || computer_file_agent) runtime_flags |= 128;
     let extra = ["ldap_filter", "ldap_username", "ldap_password", "local_admin_username", "local_admin_password", "override_username", "real_dns_name", "output_prefix", "zip_password", "cache_name"];
@@ -269,7 +277,7 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
         (local_user_present ? 8 : 0) | (local_password_present ? 16 : 0) | (parsed_json["computer_file"] ? 32 : 0) | (computer_file_agent ? 64 : 0) |
         (parsed_json["ldap_filter"] !== undefined && parsed_json["ldap_filter"] !== null ? 128 : 0) | (parsed_json["output_prefix"] !== undefined && parsed_json["output_prefix"] !== null ? 256 : 0) |
         (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null ? 512 : 0);
-    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
+    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, memory_auto ? 6 : 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
     let format = "cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,int,cstr,int,int,int,int,cstr,int,int,int,int,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,cstr,cstr,cstr,cstr,int,int";
     let bof_params = ax.bof_pack(format, values);
     let bof_path = ax.script_dir() + "_bin/AdaptiHound/" + backend + "." + ax.arch(id) + ".o";
