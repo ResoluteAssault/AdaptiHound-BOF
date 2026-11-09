@@ -21,21 +21,20 @@ static void ah_track_resolved_call(ah_graph &, const char *, const char *, const
 
 static void ah_local_names_result(ah_graph &g, ah_buffer &b, ah_object *o, ah_session_info *members);
 
-static void ah_collect_machine_sid(ah_graph &g, ah_object *o, const wchar_t *host) {
-    if (o->machine_sid) return;
-    if(const char *cached=ah_cached_machine_sid(o->id)){o->machine_sid=const_cast<char *>(cached);return;}
-    LSA_UNICODE_STRING server = {static_cast<USHORT>(ah_wlen(host) * sizeof(wchar_t)), static_cast<USHORT>(ah_wlen(host) * sizeof(wchar_t)), const_cast<wchar_t *>(host)};
-    LSA_OBJECT_ATTRIBUTES attributes = {}; attributes.Length = sizeof(attributes);
-    LSA_HANDLE policy = nullptr;
-    if (ADVAPI32$LsaOpenPolicy(&server, &attributes, POLICY_VIEW_LOCAL_INFORMATION, &policy)) return;
+static NTSTATUS ah_collect_machine_sid(ah_graph &g, ah_object *o, LSA_HANDLE policy) {
+    if (o->machine_sid) return 0;
+    if(const char *cached=ah_cached_machine_sid(o->id)){o->machine_sid=const_cast<char *>(cached);return 0;}
+    // The caller owns the policy: use the same RPC context for SID, enumeration and lookup.
     ah_native_library advapi(L"advapi32.dll");
     auto query = advapi.find<decltype(&LsaQueryInformationPolicy)>("LsaQueryInformationPolicy");
     POLICY_ACCOUNT_DOMAIN_INFO *information = nullptr;
-    if (query && !query(policy, PolicyAccountDomainInformation, reinterpret_cast<void **>(&information)) && information)
+    NTSTATUS status = query ? query(policy, PolicyAccountDomainInformation, reinterpret_cast<void **>(&information)) : static_cast<NTSTATUS>(0xc000007aU);
+    if (!status && information)
         o->machine_sid = ah_sid_from_psid(g.arena, information->DomainSid);
     if (information) ADVAPI32$LsaFreeMemory(information);
-    ADVAPI32$LsaClose(policy);
     if(o->machine_sid)ah_cache_machine_sid(o->id,o->machine_sid);
+    if (!status && !o->machine_sid) status = static_cast<NTSTATUS>(g.arena.failed ? 0xc0000017U : 0xc0000078U);
+    return status;
 }
 
 static void ah_collect_user_rights(ah_graph &g, ah_object *o) {
@@ -46,8 +45,8 @@ static void ah_collect_user_rights(ah_graph &g, ah_object *o) {
     LSA_HANDLE policy = nullptr;
     NTSTATUS status = ADVAPI32$LsaOpenPolicy(&server, &attributes, POLICY_VIEW_LOCAL_INFORMATION | POLICY_LOOKUP_NAMES, &policy);
     if (status) { ah_track_call(g, o, "LSAOpenPolicy", ah_ntstatus_name(g.arena, static_cast<ULONG>(status))); if (ah_host_diagnostics) { BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: LsaOpenPolicy %s: %lu\n", o->text("dNSHostName"), static_cast<ULONG>(status)); } ah_free(host); return; }
-    ah_collect_machine_sid(g, o, host);
-    if (!o->machine_sid) { ah_track_call(g, o, "LSAGetMachineSID", "Unable to get machine sid"); if (ah_host_diagnostics) { BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: LSAGetMachineSID %s failed\n", o->text("dNSHostName")); } ADVAPI32$LsaClose(policy); ah_free(host); return; }
+    status = ah_collect_machine_sid(g, o, policy);
+    if (status) { const char *reason = ah_ntstatus_name(g.arena, static_cast<ULONG>(status)); ah_track_call(g, o, "LSAGetMachineSID", reason); if (ah_host_diagnostics) { BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: LSAGetMachineSID %s: %s\n", o->text("dNSHostName"), reason); } ADVAPI32$LsaClose(policy); ah_free(host); return; }
     ah_local_group_info *right = g.arena.make<ah_local_group_info>();
     if (!right) { ADVAPI32$LsaClose(policy); ah_free(host); return; }
     right->name = g.arena.copy("SeRemoteInteractiveLogonRight");
@@ -56,13 +55,15 @@ static void ah_collect_user_rights(ah_graph &g, ah_object *o) {
     LSA_UNICODE_STRING privilege = {privilege_length, privilege_length, const_cast<wchar_t *>(L"SeRemoteInteractiveLogonRight")};
     LSA_ENUMERATION_INFORMATION *accounts = nullptr; ULONG count = 0;
     status = ADVAPI32$LsaEnumerateAccountsWithUserRight(policy, &privilege, reinterpret_cast<void **>(&accounts), &count);
+    const char *operation = "LSAEnumerateAccountsWithUserRight";
     if (status == 0 || static_cast<ULONG>(status) == 0x8000001aU) {
-        right->collected = count == 0;
-        if (count && accounts && count <= 1000000) {
+        right->collected = static_cast<ULONG>(status) == 0x8000001aU || count == 0;
+        if (!right->collected && accounts && count <= 1000000) {
             PSID *sids = static_cast<PSID *>(g.arena.alloc(sizeof(PSID) * static_cast<size_t>(count)));
             ah_native_library advapi(L"advapi32.dll");
             auto lookup = advapi.find<decltype(&LsaLookupSids)>("LsaLookupSids");
             LSA_REFERENCED_DOMAIN_LIST *domains = nullptr; LSA_TRANSLATED_NAME *names = nullptr;
+            operation = "LSALookupSids";
             if (sids && lookup) {
                 for (ULONG i = 0; i < count; ++i) sids[i] = accounts[i].Sid;
                 status = lookup(policy, count, sids, &domains, &names);
@@ -79,14 +80,15 @@ static void ah_collect_user_rights(ah_graph &g, ah_object *o) {
                     }
                     ah_add_session(g.arena, &right->members, sid, translated ? translated : sid, 0, 0, names[i].Use);
                 }
-            } else status = static_cast<NTSTATUS>(0xc000007aU);
+            } else status = static_cast<NTSTATUS>(!sids ? 0xc0000017U : 0xc000007aU);
+            if (!right->collected && (status == 0 || static_cast<ULONG>(status) == 0x107U)) status = static_cast<NTSTATUS>(0xc000000dU);
             if (names) ADVAPI32$LsaFreeMemory(names);
             if (domains) ADVAPI32$LsaFreeMemory(domains);
-        }
+        } else if (!right->collected) status = static_cast<NTSTATUS>(0xc000000dU);
     }
     const char *status_name = ah_ntstatus_name(g.arena, static_cast<ULONG>(status));
-    if (!right->collected) right->failure_reason = ah_concat(g.arena, "LSAEnumerateAccountsWithUserRights returned ", status_name);
-    ah_track_call(g, o, "LSAEnumerateAccountsWithUserRight", right->collected ? "Success" : status_name);
+    if (!right->collected) right->failure_reason = ah_concat(g.arena, operation, " returned ", status_name);
+    ah_track_call(g, o, operation, right->collected ? "Success" : status_name);
     if (accounts) ADVAPI32$LsaFreeMemory(accounts);
     ADVAPI32$LsaClose(policy); ah_free(host);
 }

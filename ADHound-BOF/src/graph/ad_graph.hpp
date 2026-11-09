@@ -747,6 +747,7 @@ static void ah_ad_node(ah_graph &g, ah_buffer &b, ah_object *o) {
             AH_TEXT(&b, "{\"Result\":null,\"Collected\":false,\"FailureReason\":");
             ah_string(b, o->host_failure ? o->host_failure : "SmbNegotiateFailed"); AH_TEXT(&b, "}");
         }
+        // SharpHound 2.17.1 leaves EventLogs disabled and Computer.NtlmSessions unset.
         node.key("NtlmSessions"); AH_TEXT(&b, "null");
         node.key("NTLMRegistryData"); ah_ntlm_registry_result(b, o);
     }
