@@ -1,5 +1,10 @@
 #pragma once
 #include "zip.hpp"
+
+static void ah_report_dataset_count(const char *name, uint64_t count) {
+    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: exported %s: %llu", name, static_cast<unsigned long long>(count));
+}
+
 static char *ah_default_filename(ah_arena &arena, const ah_profile *profile, const char *domain) {
     char *lower = arena.copy(domain);
     if (!lower) return nullptr;

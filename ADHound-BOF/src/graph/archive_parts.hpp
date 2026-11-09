@@ -296,6 +296,8 @@ public:
         finalized = true;
         if (!emit_manifest(success)) return fail("output sink rejected the final manifest");
         completed = success;
+        for (size_t i = 0; i < 16; ++i)
+            if (counts[i] || i < 4) ah_report_dataset_count(dataset_name(i), counts[i]);
         return completed;
     }
     ah_archive_parts(const ah_archive_parts &) = delete;

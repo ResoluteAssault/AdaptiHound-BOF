@@ -646,6 +646,7 @@ class ah_combined_output final {
         for(file *item=files; item; item=item->next)if(item->body.length>0x7fffffffU)return fail();
         if(archive&&!zip.download(archive,methods==0))return fail();
         for(file *item=files; item; item=item->next)if(item->csv||ah_no_zip)AxDownloadMemory(item->name,item->body.data,static_cast<int>(item->body.length));
+        for(size_t i=0;i<16;++i)if(data[i].count||i<4)ah_report_dataset_count(data[i].name,data[i].count);
         return true;
     }
     ah_combined_output(const ah_combined_output&)=delete;

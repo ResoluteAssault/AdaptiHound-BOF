@@ -89,6 +89,19 @@ static bool ah_export(ah_directory &directory, const ah_profile *profile, const 
     ah_zip zip(limit, ah_zip_password);
     ah_buffer json(limit);
     if (!ah_ipa_file(graph, json) || !ah_write_dataset(graph.arena, zip, json, "freeipa_graph", timestamp)) return false;
-    if (ah_no_zip) { BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: %u JSON files ready in Downloads", 1U); return true; }
-    return zip.download(filename);
+    if (!ah_no_zip && !zip.download(filename)) return false;
+    if (ah_no_zip) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: %u JSON files ready in Downloads", 1U);
+    static const char *kinds[] = {"IPA_User", "IPA_Computer", "IPA_Group", "IPA_Domain", "IPA_Service",
+        "IPA_Permission", "IPA_Role", "IPA_CA", "IPA_CertificateTemplate", "IPA_SELinux", "Base"};
+    static const char *names[] = {"users", "computers", "groups", "domains", "services", "permissions",
+        "roles", "cas", "certtemplates", "selinux", "base"};
+    uint64_t counts[sizeof(kinds) / sizeof(kinds[0])] = {};
+    for (const ah_object *object = directory.objects; object; object = object->next) {
+        if (!object->exported) continue;
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); ++i)
+            if (ah_eq(object->kind, kinds[i])) { ++counts[i]; break; }
+    }
+    for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); ++i)
+        if (i < 4 || counts[i]) ah_report_dataset_count(names[i], counts[i]);
+    return true;
 }
