@@ -390,12 +390,13 @@ static bool ah_resolve_directory_sid_gc(ah_graph &graph, const char *sid, const 
     return success && found;
 }
 
-static const char *ah_runtime_value(ah_graph &graph,LDAP *ld,LDAPMessage *entry,const wchar_t *name) {
+static const char *ah_runtime_value(ah_arena &arena,LDAP *ld,LDAPMessage *entry,const wchar_t *name) {
     struct berval **values=WLDAP32$ldap_get_values_lenW(ld,entry,const_cast<wchar_t *>(name));
-    const char *value=values&&values[0]?graph.arena.copy(values[0]->bv_val,values[0]->bv_len):nullptr;
+    const char *value=values&&values[0]?arena.copy(values[0]->bv_val,values[0]->bv_len):nullptr;
     if(values)WLDAP32$ldap_value_free_len(values);
     return value;
 }
+static const char *ah_runtime_value(ah_graph &graph,LDAP *ld,LDAPMessage *entry,const wchar_t *name) { return ah_runtime_value(graph.arena,ld,entry,name); }
 static bool ah_runtime_wellknown_reference(ah_graph &graph, const char *dn, const char *identifier, const char **id, const char **kind) {
     const char *sid = nullptr;
     const char *label = ah_wellknown_identifier_kind(identifier, &sid);
@@ -413,15 +414,17 @@ static bool ah_runtime_reference(ah_graph &graph,LDAP *ld,LDAPMessage *entry,con
     if (ah_wellknown_kind(identifier)) return ah_runtime_wellknown_reference(graph, dn, identifier, id, kind);
     const char *label=nullptr;bool builtin_domain=false;
 
+    // Only identifiers escape this call; classification attributes are temporary.
+    ah_directory scratch(0,1024);
     ah_object description={};description.dn=const_cast<char *>(dn);
     values=WLDAP32$ldap_get_values_lenW(ld,entry,const_cast<wchar_t *>(L"objectClass"));
     for(size_t i=0;values&&values[i];++i) {
-        const char *name=graph.arena.copy(values[i]->bv_val,values[i]->bv_len);
-        if(name)graph.directory.value(graph.directory.attribute(&description,"objectClass"),name,ah_len(name));
+        scratch.value(scratch.attribute(&description,"objectClass"),values[i]->bv_val,values[i]->bv_len);
     }
     if(values)WLDAP32$ldap_value_free_len(values);
     auto has=[&](const char *name){return ah_has(&description,"objectClass",name);};
-    const char *account=ah_runtime_value(graph,ld,entry,L"sAMAccountType");
+    const char *account=ah_runtime_value(scratch.arena,ld,entry,L"sAMAccountType");
+    if(scratch.arena.failed){graph.arena.failed=true;return false;}
     const uint64_t account_type=account?ah_unsigned(account):0;
     builtin_domain=has("builtinDomain");
     if(has("msDS-ManagedServiceAccount")||has("msDS-GroupManagedServiceAccount"))label="User";
@@ -442,7 +445,7 @@ static bool ah_runtime_reference(ah_graph &graph,LDAP *ld,LDAPMessage *entry,con
         if(ah_dn_contains(dn,"CN=NTAuthCertificates,CN=Public Key Services,CN=Services"))label="NTAuthStore";
     } else if(has("msPKI-Enterprise-Oid")) {
         if(ah_prefix(dn,"CN=OID,CN=Public Key Services,CN=Services"))label="Container";
-        else if(const char *flags=ah_runtime_value(graph,ld,entry,L"flags");flags&&ah_unsigned(flags)==2)label="IssuancePolicy";
+        else if(const char *flags=ah_runtime_value(scratch.arena,ld,entry,L"flags");flags&&ah_unsigned(flags)==2)label="IssuancePolicy";
     } else if(has("site"))label="Site";
     else if(has("server")) {
         for(const char *parent=dn;*parent;parent=ah_parent(parent))
@@ -456,6 +459,7 @@ static bool ah_runtime_reference(ah_graph &graph,LDAP *ld,LDAPMessage *entry,con
         ah_object context={};context.dn=const_cast<char *>(dn);
         identifier=ah_concat(graph.arena,ah_eq(identifier,"S-1-5-9")?graph.forest_domain():graph.object_domain(&context),"-",identifier);
     }
+    if(scratch.arena.failed){graph.arena.failed=true;return false;}
     if(identifier){*id=identifier;*kind=label?label:"Base";return true;}
     return false;
 }
@@ -542,8 +546,10 @@ static bool ah_resolve_directory_dn_uncached(ah_graph &graph, const char *dn, co
             *kind=ah_weq(object->type,L"issuancepolicies")&&!ah_eq(object->kind,"IssuancePolicy")?"Base":object->kind;return true;
         }
     }
-    char *escaped = ah_filter_escape(graph.arena, dn);
-    char *filter = escaped ? ah_concat(graph.arena, "(distinguishedName=", escaped, ")") : nullptr;
+    ah_arena scratch(0,1024);
+    char *escaped = ah_filter_escape(scratch, dn);
+    char *filter = escaped ? ah_concat(scratch, "(distinguishedName=", escaped, ")") : nullptr;
+    if(!escaped||!filter||scratch.failed){graph.arena.failed=true;return false;}
     bool found = false;
     ah_gc_search(graph, filter, [&](LDAP *ld, LDAPMessage *entry) { if(ah_runtime_reference(graph,ld,entry,dn,id,kind))found=true; });
     if(found)return true;

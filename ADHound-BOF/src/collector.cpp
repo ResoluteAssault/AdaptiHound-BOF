@@ -188,6 +188,8 @@ static char *ah_resolve_forest_sid(ah_directory &directory, LDAP *ld, const wcha
     return sid;
 }
 
+#include "collection/bounded_collect.hpp"
+
 static bool ah_collect_single(const ah_options &options, const ah_profile *profile) {
     char *server_arg = options.server, *base_arg = options.base, *output = options.output;
     char *user_arg = options.user, *password_arg = options.password;
@@ -236,6 +238,10 @@ static bool ah_collect_single(const ah_options &options, const ah_profile *profi
         ah_free(base); base = ah_root(ld, L"defaultNamingContext");
         if(!base&&profile->security_descriptors&&*options.domain){char *text=ah_domain_base(options.domain);base=text?ah_wide(text):nullptr;ah_free(text);}
         if (!base || !*base) { BeaconPrintf(CALLBACK_ERROR, "Cannot select naming context; specify --base-dn"); goto cleanup; }
+    }
+    if (ah_bounded_requested(options, profile)) {
+        success = ah_collect_bounded(options, profile, ld, server, base);
+        goto cleanup;
     }
     if(ah_computer_file_mode) {
         wchar_t *context=ah_root(ld,L"defaultNamingContext");
@@ -342,6 +348,8 @@ cleanup:
 
 static bool ah_collect_pass(const ah_options &options, const ah_profile *profile) {
 
+    if (ah_bounded_requested(options, profile)) return ah_collect_single(options, profile);
+
     const bool single=options.stealth||(!options.search_forest&&!options.recurse_domains)||((options.runtime_flags&128)&&!options.stealth);
     if(single) {
         if(!profile->security_descriptors||ah_active_combined_output)return ah_collect_single(options,profile);
@@ -429,7 +437,8 @@ static void ah_run_loop(const ah_options &options, const ah_profile *profile, Co
     current.collection &= AH_LOCAL_GROUPS | AH_LOGGEDON | AH_SESSION;
     ah_zip outer(ah_memory_limit(options.mib),options.zip_password);
     auto *previous_sink=ah_archive_sink;auto *previous_zip=ah_loop_zip;
-    ah_loop_zip=&outer;ah_archive_sink=ah_loop_capture_archive;
+    const bool bounded = ah_bounded_requested(options, profile);
+    if (!bounded) { ah_loop_zip=&outer;ah_archive_sink=ah_loop_capture_archive; }
     BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: explicit loop enabled for %llu milliseconds, interval %llu milliseconds; methods %u", static_cast<unsigned long long>(duration_ms), static_cast<unsigned long long>(interval_ms), current.collection);
     for (;;) {
         ULONGLONG now = KERNEL32$GetTickCount64();
@@ -453,7 +462,7 @@ static void ah_run_loop(const ah_options &options, const ah_profile *profile, Co
         }
     }
     ah_archive_sink=previous_sink;ah_loop_zip=previous_zip;
-    if(!(options.runtime_flags&512)) {
+    if(!bounded && !(options.runtime_flags&512)) {
         ah_arena names(65536);char timestamp[16];
         char *name=ah_output_timestamp(timestamp)?ah_output_name(names,*options.output?options.output:"BloodHoundLoopResults","zip",timestamp):nullptr;
         if(!name||!outer.download(name,true))BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: loop archive generation failed");
@@ -466,9 +475,24 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
     if (!ah_unpack(args, length, options, {AH_DEFAULT, AH_DCONLY, AH_ALL})) { BeaconPrintf(CALLBACK_ERROR, "Invalid AdaptiHound argument buffer or options"); return; }
     ah_verbosity = options.verbosity;
     if (options.legacy_layout) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: legacy AxScript arguments; reload the extension to enable current options");
-    ah_memory_scope memory(ah_memory_limit(options.mib));
+    const bool bounded = ah_bounded_requested(options, profile);
+    if (ah_memory_auto(options) && !bounded) {
+        BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: --memory-auto requires single-domain AD collection without Stealth, ComputerFile or explicit computer targets");
+        return;
+    }
+    ah_memory_scope memory(ah_memory_limit(options.mib), ah_memory_auto(options) ? ah_memory_workspace(options) : 0);
+    if (memory.budget.adaptive()) {
+        if (memory.budget.limit())
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; hard ceiling %llu bytes; agent and native API memory are separate",
+                static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.limit()));
+        else
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: economical BOF memory mode, initial working watermark %llu bytes; no user hard ceiling; agent and native API memory are separate",
+                static_cast<unsigned long long>(memory.budget.initial_limit()));
+    }
+    if (profile->security_descriptors && options.mib > 0 && !bounded)
+        BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: this option combination uses the standard collection pipeline; multipart collection currently applies to a single domain without Stealth, ComputerFile or explicit computer targets");
     ah_cache_scope cache(options.cache_name,ah_memory_limit(options.mib),
-        profile->security_descriptors&&options.wire_version>=4,(options.runtime_flags&4096)!=0);
+        profile->security_descriptors&&options.wire_version>=4&&!bounded,(options.runtime_flags&4096)!=0);
     ah_observability observations(options.status_interval,(options.option_presence&1)!=0,options.output_prefix,*options.domain?options.domain:options.server);
     if (!observations.valid()) return;
     ah_observe_begin_pass();
@@ -478,6 +502,16 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
         ah_run_loop(options, profile, [](const ah_options &current, const ah_profile *backend) { return ah_collect_pass(current, backend); });
     cache.finish();
     observations.finish();
+    if (memory.budget.adaptive()) {
+        if (memory.budget.limit())
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; hard ceiling %llu bytes; increases %llu",
+                static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.working_limit()),
+                static_cast<unsigned long long>(memory.budget.limit()), static_cast<unsigned long long>(memory.budget.growth_count()));
+        else
+            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: BOF working watermark, initial %llu bytes; reached %llu bytes; no user hard ceiling; increases %llu",
+                static_cast<unsigned long long>(memory.budget.initial_limit()), static_cast<unsigned long long>(memory.budget.working_limit()),
+                static_cast<unsigned long long>(memory.budget.growth_count()));
+    }
     BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: BOF-owned heap peak %llu bytes; allocation failures %llu",
         static_cast<unsigned long long>(memory.budget.peak()),static_cast<unsigned long long>(memory.budget.allocation_failures()));
 }
