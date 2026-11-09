@@ -102,7 +102,7 @@ adaptihound ad [--server DC] [--domain DOMAIN] [--collection METHODS] [--kerbero
 * `--cache-name` - Lookup-cache path on the agent
 * `--memcache` - Load an existing cache without creating or overwriting its file
 * `--rebuild-cache` - Accept the compatibility flag; unused in SharpHound 2.17.1
-* `--metrics` - Send LDAP collection metrics to Downloads
+* `--metrics` - Export LDAP metrics to Downloads independently of console telemetry
 
 Collection methods include `group`, `localadmin`, `gpolocalgroup`, `session`, `loggedon`, `trusts`, `acl`, `container`, `rdp`, `dcom`, `psremote`, `objectprops`, `spntargets`, `userrights`, `caregistry`, `dcregistry`, `certservices`, `ldapservices`, `webclientservice`, `smbinfo`, `ntlmregistry`, `site` and `azureregistry`. Use `localgroup` to select the four local-group methods.
 
@@ -162,8 +162,9 @@ Available for both collectors unless marked AD-only.
 * `--zip-password` - Protect the ZIP archive with a password
 * `--max-mib` - Hard ceiling for the BOF's own live heap allocations in MiB; 0 leaves them uncapped
 * `--memory-auto` - AD-only: economical streaming with memory allocated as needed; `--max-mib` is optional
-* `--status-interval` - Status output interval in milliseconds (30000 by default)
-* `--verbosity` - Log threshold from 0 (Trace) to 6 (None), default 2 (Information)
+* `--telemetry` - Show detailed console diagnostics, progress and memory statistics
+* `--status-interval` - Telemetry status interval in milliseconds (30000 by default)
+* `--verbosity` - Log threshold from 0 (Trace) to 6 (None), default 2 (Information); detailed diagnostics also require `--telemetry`
 
 Default ZIP filenames:
 
@@ -177,6 +178,18 @@ The domain is lowercase and the timestamp uses the collecting Windows host's loc
 With `--no-zip`, standard AD collection sends one JSON file per exported dataset, while batched AD collection can send several JSON parts for a dataset. FreeIPA sends one `YYYYMMDDHHMMSS_freeipa_graph.json` file. The same prefix and random-filename options apply.
 
 Decrypt password-protected ZIPs and import the extracted JSON files. Standard AD loop output includes an outer ZIP containing per-pass ZIPs; extract it and import the individual pass archives. Batched loop collection emits each pass's parts directly. When using random filenames, give extracted JSON files a `.json` extension for upload.
+
+
+
+## Console output
+
+By default, the console shows collection start, exported entity counts (users, computers, groups and other types), prepared output, warnings and errors. Counts describe exported graph records, including any placeholder principals. Multipart totals cover completed output parts; an incomplete collection is reported separately. Use `--telemetry` with either collector for timestamps, LDAP and cache details, periodic progress and process memory, and BOF memory statistics:
+
+```sh
+adaptihound ad --collection full --telemetry
+```
+
+`--verbosity` filters messages within the selected output mode. Trace and debug levels require `--telemetry`. The AD-only `--metrics` option exports a metrics log to Downloads without enabling console telemetry.
 
 
 
