@@ -183,7 +183,7 @@ Decrypt password-protected ZIPs and import the extracted JSON files. Standard AD
 
 ## Console output
 
-By default, the console shows collection start, exported entity counts (users, computers, groups and other types), prepared output, warnings and errors. Counts describe exported graph records, including any placeholder principals. Multipart totals cover completed output parts; an incomplete collection is reported separately. Use `--telemetry` with either collector for timestamps, LDAP and cache details, periodic progress and process memory, and BOF memory statistics:
+By default, the console shows collection start, exported entity counts (users, computers, groups and other types), warnings and errors. Counts describe exported graph records, including any placeholder principals. Multipart totals cover completed output parts; an incomplete collection is reported separately. Archive preparation messages, filenames, sizes and part totals require `--telemetry`. Use it with either collector for timestamps, LDAP and cache details, periodic progress and process memory, and BOF memory statistics:
 
 ```sh
 adaptihound ad --collection full --telemetry
