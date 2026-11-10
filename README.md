@@ -267,7 +267,7 @@ The current agent delivers Downloads after the BOF task returns. Part generation
 
 ### Test domain and workload
 
-The AD memory benchmark uses `adaptihound.test`, a single-domain forest at Windows Server 2016 functional levels. There are two real Windows Server 2022 Datacenter machines. Resource observations on 2026-11-09:
+The AD memory benchmark uses `adaptihound.test`, a single-domain forest at Windows Server 2016 functional levels. There are two real Windows Server 2022 Datacenter machines. Resource observations:
 
 | Host | Role | Logical CPUs | RAM |
 |---|---|---:|---:|
@@ -303,13 +303,13 @@ The member provides one Enterprise Root CA with AD CS Web Enrollment over IIS HT
 
 The full snapshot verified host UserRights, local groups, privileged/registry sessions and the four CA registry sections. Directory fixtures do not establish actual certificate issuance, an IIS worker running as gMSA, native LAPS password backup or successful delegated KCD/RBCD authentication. This two-host lab does not cover a second DC, multiple domains or trusts, Windows workstations or multi-DC replication.
 
-<!-- adaptihound-memory-benchmark:2026-11-09:begin -->
+<!-- adaptihound-memory-benchmark:begin -->
 
-### Measured runs — series started 2026-11-09
+### Measured runs
 
 One sequential run with a cold lookup cache was performed for each mode using the same elevated Windows x64 beacon process on `AH-SRV01`. Every run used `full`, Kerberos, metrics, a requested 50 workers and a requested LDAP page size of 500. Each run used a unique verified-absent cache path with `--memcache`; the actual batched settings are described above.
 
-All runs executed the same frozen BOF, SHA256 `4c5e3f4a613aa66f143a2215ed7227de8cf1aa8dd3743565c60892ff4ff41270`. Downloads for a run use the prefix `ahmem-20261109T160317-<mode>`.
+All runs used the same BOF build.
 
 The BOF peak is its own live-allocation counter. Process Private Bytes (`PrivateMemorySize64`) were sampled every second in 50-second observation windows, with gaps between windows; the largest observed inter-sample gap for each run ranged from 5.01 to 160.02 seconds. Process peaks are sampled absolute values including the existing agent baseline, native allocations and queued output copies. Brief peaks between samples can be missed; these are not continuous peak measurements.
 
@@ -344,13 +344,13 @@ Every complete run matched the baseline multiset of typed identifiers and their 
 
 Batched modes release directory and graph data between batches and may repeat dependency lookups. The LDAP-request counts expose this memory/work tradeoff. ZIP part targets refer to uncompressed JSON, so they do not predict the compressed size of each downloaded archive.
 
-![Peak BOF-owned heap and sampled absolute process Private Bytes by memory mode](docs/benchmarks/2026-11-09/memory-peaks.svg)
+![Peak BOF-owned heap and sampled absolute process Private Bytes by memory mode](docs/benchmarks/memory-peaks.svg)
 
-![Sampled absolute process Private Bytes over elapsed task time for each memory mode](docs/benchmarks/2026-11-09/memory-over-time.svg)
+![Sampled absolute process Private Bytes over elapsed task time for each memory mode](docs/benchmarks/memory-over-time.svg)
 
 The peak chart compares categories, not a time series. The second chart shows sampled process consumption over each task's elapsed time; observation gaps do not establish the values between samples.
 
-<!-- adaptihound-memory-benchmark:2026-11-09:end -->
+<!-- adaptihound-memory-benchmark:end -->
 
 </details>
 
