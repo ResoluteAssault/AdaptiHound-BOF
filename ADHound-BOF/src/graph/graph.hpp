@@ -796,7 +796,7 @@ static bool ah_export(ah_directory &directory, const ah_profile *profile, const 
     }
     if(!ah_export_call_status(graph,limit,timestamp)||directory.arena.failed)return false;
     if(ah_active_combined_output)return ah_active_combined_output->valid();
-    if(!exported) { BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: no selected objects; no archive produced");return true; }
+    if(!exported) { BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: no selected objects");return true; }
     if(ah_no_zip){BeaconPrintf(CALLBACK_OUTPUT,"AdaptiHound: %u JSON files ready in Downloads",exported);return true;}
     return zip.download(filename);
 }

@@ -468,7 +468,7 @@ static void ah_run_loop(const ah_options &options, const ah_profile *profile, Co
         char *name=ah_output_timestamp(timestamp)?ah_output_name(names,*options.output?options.output:"BloodHoundLoopResults","zip",timestamp):nullptr;
         if(!name||!outer.download(name,true))BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: loop archive generation failed");
     }
-    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: loop completed, %u additional archives/passes", pass);
+    BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: loop completed, %u additional passes", pass);
 }
 
 static void ah_collect(char *args, int length, const ah_profile *profile) {

@@ -247,8 +247,8 @@ static bool ah_collect_bounded(const ah_options &options, const ah_profile *prof
                 static_cast<unsigned long long>(parts.parts()), static_cast<unsigned long long>(parts.records()),
                 success ? "complete" : "incomplete", parts.failure_reason() ? ": " : "", parts.failure_reason() ? parts.failure_reason() : "");
         else
-            BeaconPrintf(success ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: collection %s; %llu parts prepared for Downloads%s%s",
-                success ? "complete" : "incomplete", static_cast<unsigned long long>(parts.parts()),
+            BeaconPrintf(success ? CALLBACK_OUTPUT : CALLBACK_ERROR, "AdaptiHound: collection %s%s%s",
+                success ? "complete" : "incomplete",
                 parts.failure_reason() ? ": " : "", parts.failure_reason() ? parts.failure_reason() : "");
     } else BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: bounded collection could not load domain support metadata; no archive sent");
     ah_free(domain_base); ah_free(configuration);

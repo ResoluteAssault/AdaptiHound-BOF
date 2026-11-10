@@ -320,8 +320,6 @@ public:
         AxDownloadMemory(filename, bytes.data, static_cast<int>(bytes.length));
         if (ah_telemetry_enabled)
             BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: archive prepared for Downloads: %s (%llu bytes, %llu entries)", filename, static_cast<unsigned long long>(bytes.length), static_cast<unsigned long long>(count));
-        else
-            BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: archive prepared for Downloads");
         return true;
     }
 };
