@@ -99,7 +99,8 @@ adaptihound ad [--server DC] [--domain DOMAIN] [--collection METHODS] [--kerbero
 * `--loop-interval` - Delay between passes as a TimeSpan (zero selects 30 seconds)
 * `--loop-duration-seconds`, `--loop-interval-seconds` - Integer-seconds aliases
 * `--track-computer-calls` - Write computer collection status to CSV
-* `--cache-name` - Lookup-cache path on the agent
+* `--cache` - Load and save a lookup-cache file in the agent's temporary directory (standard collection only)
+* `--cache-name` - Override the lookup-cache path on the agent; requires `--cache` or `--memcache`
 * `--memcache` - Load an existing cache without creating or overwriting its file
 * `--rebuild-cache` - Accept the compatibility flag; unused in SharpHound 2.17.1
 * `--metrics` - Export LDAP metrics to Downloads independently of console telemetry
@@ -227,7 +228,27 @@ The heap ceiling and reported BOF peak include the collector's allocation header
 
 Automatic mode supports ordinary single-domain AD collection. It rejects FreeIPA, `--stealth`, `--searchforest`, `--recursedomains`, nonempty `--computers`, `--computer-file` and `--computer-file-agent`. A fixed positive ceiling with those AD scope options uses the standard pipeline under the ceiling, with a console notice.
 
-The batched pipeline uses a disposable RAM cache and does not load or save a persistent lookup-cache file. The standard pipeline normally loads and saves its lookup cache. `--memcache` suppresses creating or overwriting that file, but still reads an existing one. To compare cold runs without writing a cache, use `--memcache --cache-name` with a new, verified-absent path for each run.
+Both pipelines use a RAM lookup cache by default, without reading or writing a cache file. For standard collection, `--cache` enables loading and atomically saving a persistent file in the collecting agent's Windows temporary directory. Its default filename is derived from the machine identity. The directory is resolved through [GetTempPathW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-gettemppathw), which checks `TMP` before `TEMP`.
+
+| Standard collection option | Read an existing cache file | Create or update a cache file | Keep new lookups in RAM |
+|---|---|---|---|
+| No cache flags | No | No | Yes |
+| `--cache` | Yes, if present | Yes, when collection finishes | Yes |
+| `--memcache` | Yes, if present | No | Yes |
+
+`--cache-name PATH` selects a file on the collecting Windows host and requires either `--cache` or `--memcache`. Without it, both flags use the same machine-derived filename in the agent's temporary directory. A custom path overrides that location; its parent directory must already exist.
+
+```text
+adaptihound ad --collection full
+adaptihound ad --collection full --cache
+adaptihound ad --collection full --memcache
+adaptihound ad --collection full --cache --cache-name "C:\Temp\adaptihound-cache.bin"
+adaptihound ad --collection full --memcache --cache-name "C:\Temp\adaptihound-cache.bin"
+```
+
+`--memcache` is useful for reusing a previously saved cache without modifying its file. If the file is absent, the lookup cache starts empty; only `--cache` will save a file at the end. The two flags cannot be combined. To collect with a cold lookup cache and no cache-file access, omit `--cache`, `--memcache` and `--cache-name`.
+
+The batched pipeline recycles its disposable RAM cache between batches and does not persist it. `--cache` is rejected when `--memory-auto` or an ordinary single-domain `--max-mib` collection selects that pipeline. Cache flags do not force a different collection pipeline.
 
 ### ZIP parts and completeness
 

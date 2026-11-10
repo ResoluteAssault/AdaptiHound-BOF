@@ -145,7 +145,8 @@ function adaptihound_arguments(command, backend) {
     command.addArgFlagString("--output-prefix", "output_prefix", false, "Prefix output filenames");
     command.addArgFlagString("--zip-password", "zip_password", "Protect the ZIP archive with a password", "");
     command.addArgBool("--track-computer-calls", "AD: write collection status CSV");
-    command.addArgFlagString("--cache-name", "cache_name", "AD: lookup cache path on the agent; default uses the machine identity", "");
+    command.addArgBool("--cache", "AD: load and save a lookup-cache file in the agent's temporary directory; standard collection only");
+    command.addArgFlagString("--cache-name", "cache_name", "AD: override the cache path on the agent; requires --cache or --memcache", "");
     command.addArgBool("--memcache", "AD: load an existing lookup cache but keep changes in memory");
     command.addArgBool("--rebuild-cache", "AD: accept the reference cache flag (unused in SharpHound 2.17.1)");
     command.addArgBool("--skip-port-scan", "AD: skip the computer TCP 445 availability check");
@@ -254,6 +255,11 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
     let switches = ["--skip-registry-loggedon", "--disable-signing", "--disable-cert-verification", "--partition-ldap-queries", "--local-admin-session", "--extended-sessions", "--conservative-probes", null, "--pretty-print", "--no-zip", "--random-filenames", "--track-computer-calls", "--memcache", "--rebuild-cache", "--memory-auto"];
     for (let i = 0; i < switches.length; ++i) if (switches[i] && parsed_json[switches[i]]) runtime_flags |= 1 << i;
     if (parsed_json["computer_file"] || computer_file_agent) runtime_flags |= 128;
+    let file_cache = !!parsed_json["--cache"];
+    if (file_cache && parsed_json["--memcache"]) throw new Error("Choose --cache for file persistence or --memcache for read-only cache access");
+    if (parsed_json["cache_name"] && !file_cache && !parsed_json["--memcache"]) throw new Error("--cache-name requires --cache or --memcache");
+    let bounded_collection = (mib > 0 || memory_auto) && !stealth && !searchforest && !recursedomains && !(runtime_flags & 128) && !targets.length;
+    if (file_cache && bounded_collection) throw new Error("--cache requires standard collection; batched collection with --memory-auto or --max-mib uses only a disposable RAM cache");
     let extra = ["ldap_filter", "ldap_username", "ldap_password", "local_admin_username", "local_admin_password", "override_username", "real_dns_name", "output_prefix", "zip_password", "cache_name"];
     let extra_values = extra.map(function (key) { return parsed_json[key] || ""; });
     if (extra_values.some(function (value) { return value.indexOf("\0") >= 0; })) throw new Error("Invalid extended argument");
@@ -273,12 +279,12 @@ function adaptihound_collect(id, cmdline, parsed_json, backend) {
     let verbosity = parsed_json["verbosity"] === undefined ? 2 : parsed_json["verbosity"];
     if (status_interval < 1 || status_interval > 2147483647 || verbosity < -2147483648 || verbosity > 2147483647) throw new Error("Invalid status interval or verbosity");
     if (parsed_json["output_prefix"] && /[\\/:\x00-\x1f]/.test(parsed_json["output_prefix"])) throw new Error("Invalid output filename prefix");
-    if (backend === "freeipa" && (runtime_flags & 12543 || parsed_json["cache_name"] || (parsed_json["ldap_filter"] !== undefined && parsed_json["ldap_filter"] !== null) || has_ldap_user || has_ldap_password || local_user_present || local_password_present || parsed_json["override_username"] || (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null) || ssl_port || throttle || jitter || parsed_json["--track-computer-calls"] || parsed_json["--metrics"] || has_duration_seconds || has_interval_seconds)) throw new Error("Selected runtime options require AD");
+    if (backend === "freeipa" && (file_cache || runtime_flags & 12543 || parsed_json["cache_name"] || (parsed_json["ldap_filter"] !== undefined && parsed_json["ldap_filter"] !== null) || has_ldap_user || has_ldap_password || local_user_present || local_password_present || parsed_json["override_username"] || (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null) || ssl_port || throttle || jitter || parsed_json["--track-computer-calls"] || parsed_json["--metrics"] || has_duration_seconds || has_interval_seconds)) throw new Error("Selected runtime options require AD");
     let option_presence = (parsed_json["--metrics"] ? 1 : 0) | (has_duration_seconds ? 2 : 0) | (has_interval_seconds ? 4 : 0) |
         (local_user_present ? 8 : 0) | (local_password_present ? 16 : 0) | (parsed_json["computer_file"] ? 32 : 0) | (computer_file_agent ? 64 : 0) |
         (parsed_json["ldap_filter"] !== undefined && parsed_json["ldap_filter"] !== null ? 128 : 0) | (parsed_json["output_prefix"] !== undefined && parsed_json["output_prefix"] !== null ? 256 : 0) |
-        (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null ? 512 : 0) | (parsed_json["--telemetry"] ? 1024 : 0);
-    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, parsed_json["--telemetry"] ? 7 : memory_auto ? 6 : 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
+        (parsed_json["real_dns_name"] !== undefined && parsed_json["real_dns_name"] !== null ? 512 : 0) | (parsed_json["--telemetry"] ? 1024 : 0) | (file_cache ? 2048 : 0);
+    let values = [server, parsed_json["base_dn"] || "", output, user, password, tls, kerberos, port, pages, mib, collection_mask, parsed_json["domain"] || "", searchforest, recursedomains, file_cache ? 8 : parsed_json["--telemetry"] ? 7 : memory_auto ? 6 : 5, flags, targets.join(","), 7200, 30, scan_timeout, runtime_flags].concat(extra_values, [ssl_port, throttle, jitter, threads, status_interval, loop_duration, loop_interval, computer_file_agent, computer_file_text, option_presence, verbosity]);
     let format = "cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,int,cstr,int,int,int,int,cstr,int,int,int,int,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,cstr,int,int,int,int,int,cstr,cstr,cstr,cstr,int,int";
     let bof_params = ax.bof_pack(format, values);
     let bof_path = ax.script_dir() + "_bin/AdaptiHound/" + backend + "." + ax.arch(id) + ".o";

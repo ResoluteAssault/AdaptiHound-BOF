@@ -365,14 +365,24 @@ class ah_cache_scope final {
     ah_cache_data data;
     ah_cache_data *previous=nullptr;
     char *path=nullptr;
-    bool enabled=false,requested=false,memory_only=false,finished=false,finish_result=true;
+    bool enabled=false,requested=false,memory_only=true,file_failed=false,finished=false,finish_result=true;
     static char *default_name(){
         ah_arena names(131072);wchar_t *machine=nullptr;HKEY key=nullptr;
         if(ADVAPI32$RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Cryptography",0,KEY_QUERY_VALUE|KEY_WOW64_64KEY,&key)==ERROR_SUCCESS){DWORD type=0,size=0;if(ADVAPI32$RegQueryValueExW(key,L"MachineGuid",nullptr,&type,nullptr,&size)==ERROR_SUCCESS&&type==REG_SZ&&size>=sizeof(wchar_t)&&size<=65536){machine=ah_alloc<wchar_t>(size+sizeof(wchar_t));if(machine&&ADVAPI32$RegQueryValueExW(key,L"MachineGuid",nullptr,&type,reinterpret_cast<LPBYTE>(machine),&size)!=ERROR_SUCCESS){ah_free(machine);machine=nullptr;}}ADVAPI32$RegCloseKey(key);}
         const char *identifier=machine&&*machine?names.utf8(machine):nullptr;ah_free(machine);
         if(!identifier){ah_native_library kernel(L"kernel32.dll");auto query=kernel.find<decltype(&GetComputerNameW)>("GetComputerNameW");wchar_t name[MAX_COMPUTERNAME_LENGTH+1]={};DWORD size=MAX_COMPUTERNAME_LENGTH+1;if(query&&query(name,&size))identifier=names.utf8(name);}
         if(!identifier)return nullptr;
-        char *base64=ah_base64_encode(reinterpret_cast<const unsigned char *>(identifier),ah_len(identifier));char *result=base64?ah_heap_copy(ah_concat(names,base64,".bin")):nullptr;ah_free(base64);return result;
+        ah_native_library kernel(L"kernel32.dll");auto query=kernel.find<decltype(&GetTempPathW)>("GetTempPathW");
+        DWORD capacity=query?query(0,nullptr):0;
+        if(!capacity||capacity>32768)return nullptr;
+        wchar_t *temporary=ah_alloc<wchar_t>((static_cast<size_t>(capacity)+1)*sizeof(wchar_t));
+        DWORD length=temporary?query(capacity,temporary):0;
+        const char *directory=length&&length<capacity?names.utf8(temporary):nullptr;ah_free(temporary);
+        if(!directory||!*directory)return nullptr;
+        char *base64=ah_base64_encode(reinterpret_cast<const unsigned char *>(identifier),ah_len(identifier));
+        if(base64)for(char *p=base64;*p;++p){if(*p=='/')*p='_';else if(*p=='+')*p='-';}
+        const char *filename=base64?ah_concat(names,base64,".bin"):nullptr;
+        char *result=filename?ah_heap_copy(ah_concat(names,directory,filename)):nullptr;ah_free(base64);return result;
     }
     bool load(){
         wchar_t *name=ah_wide(path);HANDLE file=name?KERNEL32$CreateFileW(name,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr):INVALID_HANDLE_VALUE;ah_free(name);
@@ -402,15 +412,18 @@ class ah_cache_scope final {
     }
 public:
     bool loaded=false;
-    ah_cache_scope(const char *name,size_t limit,bool active,bool memcache):data(limit),previous(ah_current_cache),enabled(active),requested(active),memory_only(memcache){
+    ah_cache_scope(const char *name,size_t limit,bool active,bool memcache,bool file_cache=false):data(limit),previous(ah_current_cache),enabled(active),requested(active),memory_only(!file_cache||memcache){
         ah_current_cache=nullptr;
         if(!enabled)return;
+        if(!data.valid()){enabled=false;BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot initialize lookup cache");return;}
+        ah_current_cache=&data;
+        if(!file_cache&&!memcache){ah_log_telemetry("AdaptiHound: lookup cache uses RAM only");return;}
         path=name&&*name?ah_heap_copy(name):default_name();
-        if(!path||!data.valid()){enabled=false;BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot initialize persistent cache");return;}
-        loaded=load();ah_current_cache=&data;ah_log_telemetry("AdaptiHound: cache %s: %s%s\n",path,loaded?"loaded":"fresh",memory_only?" (memory-only save policy)":"");
+        if(!path){file_failed=true;BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot resolve cache path; lookups remain in RAM");return;}
+        loaded=load();ah_log_telemetry("AdaptiHound: cache %s: %s%s\n",path,loaded?"loaded":"fresh",memory_only?" (read-only file)":"");
     }
     ~ah_cache_scope(){ah_current_cache=previous;ah_free(path);}
-    bool finish(){if(finished)return finish_result;finished=true;if(!enabled){finish_result=!requested;return finish_result;}if(data.exhausted)ah_log_telemetry("AdaptiHound: cache memory limit reached; additional lookups were not retained\n");if(memory_only)return true;bool ok=save();if(!ok)BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot atomically save cache %s\n",path);finish_result=ok;return ok;}
+    bool finish(){if(finished)return finish_result;finished=true;if(!enabled){finish_result=!requested;return finish_result;}if(data.exhausted)ah_log_telemetry("AdaptiHound: cache memory limit reached; additional lookups were not retained\n");if(file_failed){finish_result=false;return false;}if(memory_only)return true;bool ok=save();if(!ok)BeaconPrintf(CALLBACK_ERROR,"AdaptiHound: cannot atomically save cache %s\n",path);finish_result=ok;return ok;}
     const char *filename()const{return path;}
     ah_cache_scope(const ah_cache_scope&)=delete;ah_cache_scope &operator=(const ah_cache_scope&)=delete;
 };

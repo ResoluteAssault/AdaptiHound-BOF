@@ -66,7 +66,7 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
     ah_verbosity = options.verbosity;
     ah_telemetry_enabled = ah_telemetry(options);
     if (options.legacy_layout) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: legacy AxScript arguments; reload the extension to enable current options");
-    if (options.collect_all || *options.computers || *options.domain || options.search_forest || options.recurse_domains || options.loop || options.skip_port_scan || options.skip_password_age_check || options.stealth || options.exclude_dcs || (options.runtime_flags&(14591|ah_memory_auto_flag)) || (options.option_presence&767) || *options.cache_name || *options.ldap_username || *options.ldap_filter || *options.override_username || *options.real_dns_name || options.ssl_port || options.throttle || options.jitter) {
+    if (options.collect_all || *options.computers || *options.domain || options.search_forest || options.recurse_domains || options.loop || options.skip_port_scan || options.skip_password_age_check || options.stealth || options.exclude_dcs || (options.runtime_flags&(14591|ah_memory_auto_flag)) || (options.option_presence&(767|ah_file_cache_flag)) || *options.cache_name || *options.ldap_username || *options.ldap_filter || *options.override_username || *options.real_dns_name || options.ssl_port || options.throttle || options.jitter) {
         BeaconPrintf(CALLBACK_ERROR, "Additional LDAP properties, target filters, loops and availability options require the AD backend"); return;
     }
     ah_memory_scope memory(ah_memory_limit(options.mib));

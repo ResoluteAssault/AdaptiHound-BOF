@@ -480,6 +480,10 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
     ah_telemetry_enabled = ah_telemetry(options);
     if (options.legacy_layout) BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: legacy AxScript arguments; reload the extension to enable current options");
     const bool bounded = ah_bounded_requested(options, profile);
+    if (ah_file_cache(options) && bounded) {
+        BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: --cache requires standard collection; batched collection uses only a disposable RAM cache");
+        return;
+    }
     if (ah_memory_auto(options) && !bounded) {
         BeaconPrintf(CALLBACK_ERROR, "AdaptiHound: --memory-auto requires single-domain AD collection without Stealth, ComputerFile or explicit computer targets");
         return;
@@ -496,7 +500,7 @@ static void ah_collect(char *args, int length, const ah_profile *profile) {
     if (profile->security_descriptors && options.mib > 0 && !bounded)
         BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: this option combination uses the standard collection pipeline; multipart collection currently applies to a single domain without Stealth, ComputerFile or explicit computer targets");
     ah_cache_scope cache(options.cache_name,ah_memory_limit(options.mib),
-        profile->security_descriptors&&options.wire_version>=4&&!bounded,(options.runtime_flags&4096)!=0);
+        profile->security_descriptors&&options.wire_version>=4&&!bounded,(options.runtime_flags&4096)!=0,ah_file_cache(options));
     ah_observability observations(options.status_interval,(options.option_presence&1)!=0,options.output_prefix,*options.domain?options.domain:options.server,ah_telemetry_enabled);
     if (!observations.valid()) return;
     BeaconPrintf(CALLBACK_OUTPUT, "AdaptiHound: collecting Active Directory");
