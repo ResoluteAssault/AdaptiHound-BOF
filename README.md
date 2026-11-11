@@ -1,5 +1,7 @@
 # AdaptiHound-BOF
 
+> **Use with [AdaptiHound-SE](https://github.com/s3c4ct0r/AdaptiHound-SE)**
+
 A library of Beacon Object Files to collect Active Directory and FreeIPA graphs in AdaptixC2.
 Supports Windows x64 beacon and gopher agents. Results are sent to Downloads as ZIP archives or individual JSON files.
 
