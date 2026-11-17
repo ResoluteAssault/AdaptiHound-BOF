@@ -1,5 +1,6 @@
 # AdaptiHound-BOF
 
+> **Developed for [@Adaptix-Framework](https://github.com/Adaptix-Framework)**<br>
 > **Use with [AdaptiHound-SE](https://github.com/s3c4ct0r/AdaptiHound-SE)**
 
 A library of Beacon Object Files to collect Active Directory and FreeIPA graphs in AdaptixC2.
